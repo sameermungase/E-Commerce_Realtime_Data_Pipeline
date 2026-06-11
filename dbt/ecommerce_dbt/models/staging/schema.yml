@@ -1,0 +1,78 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: raw
+    description: "Raw tables loaded by PySpark ETL from Olist CSV files"
+    tables:
+      - name: orders
+        description: "Raw order records with timestamps and status"
+        columns:
+          - name: order_id
+            tests:
+              - not_null
+              - unique
+          - name: customer_id
+            tests:
+              - not_null
+
+      - name: customers
+        description: "Raw customer records with location data"
+        columns:
+          - name: customer_id
+            tests:
+              - not_null
+              - unique
+
+      - name: products
+        description: "Raw product records with categories"
+        columns:
+          - name: product_id
+            tests:
+              - not_null
+              - unique
+
+      - name: order_items
+        description: "Raw order line items with pricing"
+        columns:
+          - name: order_id
+            tests:
+              - not_null
+          - name: order_item_id
+            tests:
+              - not_null
+
+models:
+  - name: stg_orders
+    description: "Staged orders with cleaned timestamps"
+    columns:
+      - name: order_id
+        tests:
+          - not_null
+          - unique
+      - name: customer_id
+        tests:
+          - not_null
+
+  - name: stg_customers
+    description: "Staged customers with trimmed location fields"
+    columns:
+      - name: customer_id
+        tests:
+          - not_null
+          - unique
+
+  - name: stg_products
+    description: "Staged products with cleaned category names"
+    columns:
+      - name: product_id
+        tests:
+          - not_null
+          - unique
+
+  - name: stg_order_items
+    description: "Staged order line items"
+    columns:
+      - name: order_id
+        tests:
+          - not_null

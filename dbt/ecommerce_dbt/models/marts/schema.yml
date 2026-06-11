@@ -1,0 +1,51 @@
+version: 2
+
+models:
+  - name: fact_orders
+    description: >
+      Fact table: each row is an order line item with pricing,
+      customer, and product references. Built by joining staged
+      orders with staged order items.
+    columns:
+      - name: order_id
+        description: "Order identifier"
+        tests:
+          - not_null
+      - name: customer_id
+        description: "FK to dim_customers"
+        tests:
+          - not_null
+      - name: product_id
+        description: "FK to dim_products"
+        tests:
+          - not_null
+      - name: price
+        description: "Item price in BRL"
+      - name: freight_value
+        description: "Shipping cost in BRL"
+      - name: purchase_timestamp
+        description: "When the order was placed"
+
+  - name: dim_customers
+    description: "Dimension table: unique customers with location"
+    columns:
+      - name: customer_id
+        description: "Primary key"
+        tests:
+          - not_null
+          - unique
+      - name: customer_city
+        description: "Customer city"
+      - name: customer_state
+        description: "Customer state (2-letter code)"
+
+  - name: dim_products
+    description: "Dimension table: unique products with category"
+    columns:
+      - name: product_id
+        description: "Primary key"
+        tests:
+          - not_null
+          - unique
+      - name: product_category
+        description: "Product category name"
