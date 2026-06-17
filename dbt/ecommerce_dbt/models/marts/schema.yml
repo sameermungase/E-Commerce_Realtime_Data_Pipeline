@@ -49,3 +49,37 @@ models:
           - unique
       - name: product_category
         description: "Product category name"
+
+  - name: fact_orders_realtime
+    description: >
+      Real-time fact table: order events consumed from Kafka via
+      Spark Structured Streaming. Each row is a single order event
+      with computed total_value and derived time columns.
+    columns:
+      - name: order_id
+        description: "Unique order identifier from streaming events"
+        tests:
+          - not_null
+          - unique
+      - name: customer_id
+        description: "Customer who placed the order"
+        tests:
+          - not_null
+      - name: product_id
+        description: "Product ordered"
+        tests:
+          - not_null
+      - name: amount
+        description: "Unit price of the product"
+      - name: quantity
+        description: "Number of units ordered"
+      - name: total_value
+        description: "Computed: amount × quantity"
+      - name: event_time
+        description: "When the order event was generated (UTC)"
+      - name: processing_time
+        description: "When Spark processed the event (UTC)"
+      - name: order_date
+        description: "Derived: date truncation of event_time"
+      - name: order_hour
+        description: "Derived: hour truncation of event_time"

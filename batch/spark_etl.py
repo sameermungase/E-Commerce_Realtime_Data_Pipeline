@@ -27,6 +27,7 @@ from batch.config import (
     RAW_TABLES,
 )
 
+# pyrefly: ignore [missing-import]
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql.types import TimestampType, DoubleType
@@ -42,7 +43,6 @@ def create_spark_session() -> SparkSession:
         SparkSession.builder
         .appName("ecommerce-etl")
         .master("local[*]")
-        .config("spark.jars", str(JDBC_DRIVER_PATH))
         .config("spark.driver.extraClassPath", str(JDBC_DRIVER_PATH))
         .config("spark.driver.extraJavaOptions", "-Duser.timezone=UTC")
         .config("spark.executor.extraJavaOptions", "-Duser.timezone=UTC")

@@ -29,6 +29,14 @@ airflow/airflow.cfg
 airflow/airflow.db
 airflow/webserver_config.py
 
+# Streaming
+streaming/checkpoints/
+bad_records/*.json
+logs/*.log
+
+# Environment
+.env
+
 # IDE
 .idea/
 .vscode/

@@ -1,7 +1,17 @@
+# ── Batch ──
 pyspark==3.5.1
 pandas==2.2.2
-sqlalchemy>=1.4.36,<2.0
 psycopg2-binary==2.9.9
+
+# ── Streaming ──
+kafka-python-ng==2.2.3
+
+# ── Orchestration ──
 apache-airflow==2.10.0
+
+# ── dbt ──
 dbt-core==1.8.7
 dbt-postgres==1.8.2
+
+# ── Database ──
+sqlalchemy>=1.4.36,<2.0

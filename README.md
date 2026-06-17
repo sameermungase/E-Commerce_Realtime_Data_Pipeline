@@ -1,8 +1,10 @@
 # E-Commerce Real-Time Data Pipeline
 
-A production-style **batch ETL pipeline** built with PySpark, PostgreSQL, dbt, and Apache Airflow using the Brazilian E-Commerce (Olist) dataset.
+A production-style **batch + streaming data pipeline** built with PySpark, Apache Kafka, Spark Structured Streaming, PostgreSQL, dbt, and Apache Airflow using the Brazilian E-Commerce (Olist) dataset.
 
 ## Architecture
+
+### Batch Pipeline
 
 ```mermaid
 flowchart TD
@@ -24,12 +26,35 @@ flowchart TD
     style G fill:#ccc,stroke:#333
 ```
 
+### Streaming Pipeline
+
+```mermaid
+flowchart TD
+    H["🛒 Order Event Generator\n(Python Kafka Producer)"] --> I["📨 Apache Kafka\n(orders_stream topic)"]
+    I --> J["⚡ Spark Structured Streaming\n(Parse, Transform, Deduplicate)"]
+    J --> K["🗄️ PostgreSQL — Streaming Layer\n(streaming.raw_orders_stream)"]
+    K --> L["📊 dbt — Marts Layer\n(fact_orders_realtime)"]
+    L --> M["📈 Real-Time Analytics"]
+
+    J -.->|invalid records| N["🚫 Dead Letter Queue\n(bad_records/)"]
+
+    style H fill:#f9f,stroke:#333
+    style I fill:#ff9,stroke:#333
+    style J fill:#9cf,stroke:#333
+    style K fill:#9f9,stroke:#333
+    style L fill:#fc9,stroke:#333
+    style M fill:#f99,stroke:#333
+    style N fill:#fcc,stroke:#333
+```
+
 ## Tech Stack
 
 | Technology | Purpose | Version |
 |------------|---------|---------|
 | **Python** | Core language | 3.12.10 |
 | **PySpark** | Distributed ETL processing | 3.5.1 |
+| **Apache Kafka** | Event streaming platform | 7.6.0 (Confluent) |
+| **Spark Structured Streaming** | Real-time stream processing | 3.5.1 |
 | **PostgreSQL** | Data warehouse (Dockerized) | 16 |
 | **dbt** | Data transformation & modeling | 1.8.7 |
 | **Apache Airflow** | Workflow orchestration | 2.10.0 |
@@ -49,7 +74,7 @@ flowchart TD
 
 ## Data Warehouse Schema
 
-### Star Schema (built by dbt)
+### Batch — Star Schema (built by dbt)
 
 **Fact Table:**
 - `analytics.fact_orders` — order_id, customer_id, product_id, price, freight_value, purchase_timestamp
@@ -57,6 +82,14 @@ flowchart TD
 **Dimension Tables:**
 - `analytics.dim_customers` — customer_id, customer_city, customer_state
 - `analytics.dim_products` — product_id, product_category
+
+### Streaming — Real-Time (built by dbt)
+
+**Fact Table:**
+- `analytics.fact_orders_realtime` — order_id, customer_id, product_id, amount, quantity, total_value, event_time, processing_time, order_date, order_hour
+
+**Source Table:**
+- `streaming.raw_orders_stream` — Landing table for Spark Structured Streaming data
 
 ## Setup
 
@@ -74,10 +107,25 @@ git clone https://github.com/sameermungase/E-Commerce_Realtime_Data_Pipeline.git
 cd E-Commerce_Realtime_Data_Pipeline
 ```
 
-### 2. Start PostgreSQL
+### 2. Start Infrastructure (PostgreSQL + Kafka)
 
 ```bash
 docker compose up -d
+```
+
+This starts **4 services**:
+
+| Service | Description |
+|---------|-------------|
+| `postgres` | Data warehouse on port 5433 |
+| `zookeeper` | Kafka coordination on port 2181 |
+| `kafka` | Message broker on port 29092 (host) |
+| `kafka-init` | Creates `orders_stream` topic (runs once and exits) |
+
+Verify Kafka topic:
+```bash
+docker exec ecommerce_kafka kafka-topics --bootstrap-server localhost:9092 --list
+# Expected: orders_stream
 ```
 
 ### 3. Create Virtual Environment
@@ -92,7 +140,7 @@ pip install -r requirements.txt
 
 Download the [Olist dataset from Kaggle](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) and place the 4 CSV files into `data/olist/`.
 
-### 5. Run Pipeline
+### 5. Run Batch Pipeline
 
 ```bash
 # Set JAVA_HOME (if not set globally)
@@ -105,7 +153,27 @@ python batch/spark_etl.py
 dbt run --project-dir dbt/ecommerce_dbt --profiles-dir dbt/ecommerce_dbt
 ```
 
-### 6. Run via Airflow
+### 6. Run Streaming Pipeline
+
+```bash
+# Terminal 1: Start the Kafka producer (generates ~30 events/minute)
+python streaming/kafka_producer.py
+
+# Terminal 2: Start the Spark Structured Streaming consumer
+python streaming/spark_streaming.py
+
+# Terminal 3: Verify data is flowing into PostgreSQL
+docker exec ecommerce_postgres psql -U admin -d ecommerce \
+  -c "SELECT COUNT(*) FROM streaming.raw_orders_stream;"
+```
+
+### 7. Run dbt for Streaming Models
+
+```bash
+dbt run --project-dir dbt/ecommerce_dbt --profiles-dir dbt/ecommerce_dbt --select fact_orders_realtime
+```
+
+### 8. Run via Airflow (Batch)
 
 ```bash
 airflow standalone
@@ -115,26 +183,71 @@ airflow dags trigger daily_batch_pipeline
 ## Project Structure
 
 ```
-├── data/olist/              # Olist CSV files (gitignored)
 ├── batch/
-│   ├── config.py            # Centralized configuration
-│   └── spark_etl.py         # PySpark ETL script
-├── airflow/dags/            # Airflow DAG definitions
-├── dbt/ecommerce_dbt/       # dbt project (staging + marts)
-├── postgres/init.sql        # DB schema initialization
-├── docker-compose.yml       # PostgreSQL container
-├── requirements.txt         # Python dependencies
+│   ├── config.py                # Centralized batch configuration
+│   ├── spark_etl.py             # PySpark batch ETL script
+│   └── jars/                    # JDBC driver (gitignored)
+├── streaming/
+│   ├── config.py                # Centralized streaming configuration
+│   ├── kafka_producer.py        # Fake order event generator
+│   ├── spark_streaming.py       # Spark Structured Streaming consumer
+│   ├── schema.py                # PySpark schema for stream events
+│   ├── postgres_sink.py         # foreachBatch JDBC sink
+│   └── dead_letter.py           # Dead letter queue handler
+├── airflow/
+│   └── dags/
+│       └── daily_batch_pipeline.py
+├── dbt/ecommerce_dbt/
+│   ├── models/
+│   │   ├── staging/             # Staging views (stg_*)
+│   │   └── marts/               # Fact + dimension tables
+│   │       ├── fact_orders.sql
+│   │       ├── fact_orders_realtime.sql
+│   │       ├── dim_customers.sql
+│   │       └── dim_products.sql
+│   ├── macros/
+│   ├── dbt_project.yml
+│   └── profiles.yml
+├── postgres/
+│   └── init.sql                 # Schema + table initialization
+├── data/olist/                  # Olist CSV files (gitignored)
+├── logs/                        # Application logs
+├── bad_records/                 # Dead letter queue output
+├── docker-compose.yml           # PostgreSQL + Kafka infrastructure
+├── requirements.txt             # Python dependencies
+├── .gitignore
 └── README.md
 ```
 
 ## Pipeline Demo
 
+### Batch Pipeline
 ```bash
-# Trigger the full pipeline via Airflow:
+# Trigger the full batch pipeline via Airflow:
 airflow dags trigger daily_batch_pipeline
 ```
 
 > **What happens:** Airflow schedules the workflow → PySpark transforms Olist order data → Data is loaded into PostgreSQL raw tables → dbt builds analytical star-schema models for reporting.
+
+### Streaming Pipeline
+```bash
+# Start producer and consumer:
+python streaming/kafka_producer.py &
+python streaming/spark_streaming.py &
+```
+
+> **What happens:** The producer simulates live orders → Events are published to Kafka → Spark Structured Streaming consumes, transforms, deduplicates, and validates events → Valid records are written to PostgreSQL → dbt builds the `fact_orders_realtime` model for real-time analytics.
+
+## Key Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| **`foreachBatch` for JDBC writes** | Better control over retries, batching, and custom sink logic vs. direct JDBC sink |
+| **Watermarking (10 min)** | Handles late-arriving data while bounding state size — common interview topic |
+| **Dead letter queue** | Invalid records are captured, not silently dropped — demonstrates production thinking |
+| **Dual Kafka listeners** | `PLAINTEXT` for inter-container comms, `PLAINTEXT_HOST` for host access |
+| **Explicit schemas** | Stream uses `StructType` instead of `inferSchema` for reliability and performance |
+| **Separate streaming schema** | Isolates batch (`raw`) and streaming (`streaming`) data in PostgreSQL |
 
 ## License
 

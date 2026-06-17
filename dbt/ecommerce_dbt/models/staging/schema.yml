@@ -42,6 +42,33 @@ sources:
             tests:
               - not_null
 
+  - name: streaming
+    schema: streaming
+    description: "Streaming tables loaded by Spark Structured Streaming from Kafka"
+    tables:
+      - name: raw_orders_stream
+        description: "Real-time order events consumed from Kafka and written via foreachBatch"
+        columns:
+          - name: order_id
+            tests:
+              - not_null
+              - unique
+          - name: customer_id
+            tests:
+              - not_null
+          - name: product_id
+            tests:
+              - not_null
+          - name: amount
+            tests:
+              - not_null
+          - name: total_value
+            tests:
+              - not_null
+          - name: event_time
+            tests:
+              - not_null
+
 models:
   - name: stg_orders
     description: "Staged orders with cleaned timestamps"
