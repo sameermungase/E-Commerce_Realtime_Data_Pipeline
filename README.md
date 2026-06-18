@@ -17,13 +17,13 @@ flowchart TD
     G["🕐 Apache Airflow\n(@daily at 2 AM)"] -.->|orchestrates| B
     G -.->|orchestrates| D
 
-    style A fill:#f9f,stroke:#333
-    style B fill:#ff9,stroke:#333
-    style C fill:#9cf,stroke:#333
-    style D fill:#9f9,stroke:#333
-    style E fill:#fc9,stroke:#333
-    style F fill:#f99,stroke:#333
-    style G fill:#ccc,stroke:#333
+    style A fill:#7c3aed,stroke:#333,color:#fff
+    style B fill:#2563eb,stroke:#333,color:#fff
+    style C fill:#0891b2,stroke:#333,color:#fff
+    style D fill:#059669,stroke:#333,color:#fff
+    style E fill:#d97706,stroke:#333,color:#fff
+    style F fill:#dc2626,stroke:#333,color:#fff
+    style G fill:#4b5563,stroke:#333,color:#fff
 ```
 
 ### Streaming Pipeline
@@ -38,13 +38,13 @@ flowchart TD
 
     J -.->|invalid records| N["🚫 Dead Letter Queue\n(bad_records/)"]
 
-    style H fill:#f9f,stroke:#333
-    style I fill:#ff9,stroke:#333
-    style J fill:#9cf,stroke:#333
-    style K fill:#9f9,stroke:#333
-    style L fill:#fc9,stroke:#333
-    style M fill:#f99,stroke:#333
-    style N fill:#fcc,stroke:#333
+    style H fill:#7c3aed,stroke:#333,color:#fff
+    style I fill:#2563eb,stroke:#333,color:#fff
+    style J fill:#0891b2,stroke:#333,color:#fff
+    style K fill:#059669,stroke:#333,color:#fff
+    style L fill:#d97706,stroke:#333,color:#fff
+    style M fill:#dc2626,stroke:#333,color:#fff
+    style N fill:#4b5563,stroke:#333,color:#fff
 ```
 
 ## Tech Stack
