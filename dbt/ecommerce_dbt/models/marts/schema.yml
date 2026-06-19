@@ -15,16 +15,34 @@ models:
         description: "FK to dim_customers"
         tests:
           - not_null
+          - relationships:
+              to: ref('dim_customers')
+              field: customer_id
       - name: product_id
         description: "FK to dim_products"
         tests:
           - not_null
+          - relationships:
+              to: ref('dim_products')
+              field: product_id
       - name: price
         description: "Item price in BRL"
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
       - name: freight_value
         description: "Shipping cost in BRL"
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
       - name: purchase_timestamp
         description: "When the order was placed"
+        tests:
+          - not_null
 
   - name: dim_customers
     description: "Dimension table: unique customers with location"
@@ -36,8 +54,12 @@ models:
           - unique
       - name: customer_city
         description: "Customer city"
+        tests:
+          - not_null
       - name: customer_state
         description: "Customer state (2-letter code)"
+        tests:
+          - not_null
 
   - name: dim_products
     description: "Dimension table: unique products with category"
@@ -71,14 +93,33 @@ models:
           - not_null
       - name: amount
         description: "Unit price of the product"
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: false
       - name: quantity
         description: "Number of units ordered"
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 1
+              inclusive: true
       - name: total_value
         description: "Computed: amount × quantity"
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: false
       - name: event_time
         description: "When the order event was generated (UTC)"
+        tests:
+          - not_null
       - name: processing_time
         description: "When Spark processed the event (UTC)"
+        tests:
+          - not_null
       - name: order_date
         description: "Derived: date truncation of event_time"
       - name: order_hour

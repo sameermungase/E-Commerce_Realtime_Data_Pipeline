@@ -2,8 +2,10 @@
 Airflow DAG: daily_batch_pipeline
 
 Orchestrates the E-Commerce ETL pipeline:
-  1. spark_etl  — Runs PySpark cleaning and loads raw tables
-  2. dbt_run    — Runs dbt models for analytics star-schema
+  1. validate_sources — Runs Great Expectations data quality checks on raw CSVs
+  2. spark_etl        — Runs PySpark cleaning and loads raw tables (PostgreSQL + BigQuery)
+  3. dbt_run          — Runs dbt models for analytics star-schema
+  4. dbt_test         — Runs dbt tests to validate model integrity
 """
 
 import subprocess
@@ -24,6 +26,20 @@ JAVA_HOME = r"C:\Users\snowp\OneDrive\Desktop\Projects\DS_project\Java"
 # ──────────────────────────────────────────────
 # Task Functions
 # ──────────────────────────────────────────────
+def run_validate_sources():
+    """Execute Great Expectations data quality validation on raw CSVs."""
+    script_path = os.path.join(PROJECT_DIR, "great_expectations", "validate_sources.py")
+    print(f"Running Great Expectations: {VENV_PYTHON} {script_path}")
+
+    res = subprocess.run(
+        [VENV_PYTHON, script_path],
+        check=True
+    )
+    if res.returncode != 0:
+        raise RuntimeError(
+            f"Great Expectations validation failed with exit code {res.returncode}"
+        )
+
 def run_spark_etl():
     """Execute PySpark ETL via subprocess with explicit JAVA_HOME."""
     env = os.environ.copy()
@@ -54,6 +70,20 @@ def run_dbt_models():
     if res.returncode != 0:
         raise RuntimeError(f"dbt run failed with exit code {res.returncode}")
 
+def run_dbt_tests():
+    """Execute dbt test via subprocess to validate model integrity."""
+    print(f"Running dbt test: {DBT_EXE} test")
+    res = subprocess.run(
+        [
+            DBT_EXE, "test",
+            "--project-dir", DBT_PROJECT_DIR,
+            "--profiles-dir", DBT_PROJECT_DIR
+        ],
+        check=True
+    )
+    if res.returncode != 0:
+        raise RuntimeError(f"dbt test failed with exit code {res.returncode}")
+
 # ──────────────────────────────────────────────
 # DAG Definition
 # ──────────────────────────────────────────────
@@ -69,12 +99,17 @@ default_args = {
 with DAG(
     dag_id="daily_batch_pipeline",
     default_args=default_args,
-    description="ETL pipeline: PySpark → PostgreSQL raw tables → dbt star schema",
+    description="ETL pipeline: Validate → PySpark → PostgreSQL/BigQuery → dbt → Test",
     schedule="0 2 * * *",
     start_date=datetime(2024, 1, 1),
     catchup=False,
-    tags=["etl", "batch", "ecommerce"],
+    tags=["etl", "batch", "ecommerce", "data-quality"],
 ) as dag:
+
+    validate_sources = PythonOperator(
+        task_id="validate_sources",
+        python_callable=run_validate_sources,
+    )
 
     spark_etl = PythonOperator(
         task_id="spark_etl",
@@ -86,4 +121,9 @@ with DAG(
         python_callable=run_dbt_models,
     )
 
-    spark_etl >> dbt_run
+    dbt_test = PythonOperator(
+        task_id="dbt_test",
+        python_callable=run_dbt_tests,
+    )
+
+    validate_sources >> spark_etl >> dbt_run >> dbt_test

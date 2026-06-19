@@ -1,0 +1,188 @@
+# ================================================================
+# CI — dbt Test, Lint & Docs
+# ================================================================
+# Runs on every push and pull request:
+#   1. dbt-test: Spins up Postgres, runs dbt models + tests
+#   2. lint: Runs sqlfluff (SQL) and flake8 (Python) linting
+#   3. docs: Generates dbt docs and deploys to GitHub Pages
+# ================================================================
+
+name: CI — dbt Test & Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ── Job 1: dbt Test ────────────────────────────────────────
+  dbt-test:
+    name: dbt Build & Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: admin
+          POSTGRES_DB: ecommerce
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U admin -d ecommerce"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dbt dependencies
+        run: |
+          pip install dbt-core==1.8.7 dbt-postgres==1.8.2
+
+      - name: Initialize database schemas
+        env:
+          PGPASSWORD: admin
+        run: |
+          psql -h localhost -p 5433 -U admin -d ecommerce -f postgres/init.sql
+
+      - name: Install dbt packages
+        run: |
+          dbt deps \
+            --project-dir dbt/ecommerce_dbt \
+            --profiles-dir dbt/ecommerce_dbt
+
+      - name: dbt run (build models)
+        run: |
+          dbt run \
+            --project-dir dbt/ecommerce_dbt \
+            --profiles-dir dbt/ecommerce_dbt \
+            --target dev \
+            --exclude source:streaming.*
+
+      - name: dbt test (run all tests)
+        run: |
+          dbt test \
+            --project-dir dbt/ecommerce_dbt \
+            --profiles-dir dbt/ecommerce_dbt \
+            --target dev \
+            --exclude source:streaming.*
+
+  # ── Job 2: Lint ────────────────────────────────────────────
+  lint:
+    name: SQL & Python Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install linting tools
+        run: |
+          pip install sqlfluff>=3.0.0 flake8>=7.0.0
+
+      - name: SQLFluff lint (dbt models)
+        run: |
+          sqlfluff lint dbt/ecommerce_dbt/models/ \
+            --dialect postgres \
+            --ignore templating
+        continue-on-error: true
+
+      - name: Flake8 lint (Python)
+        run: |
+          flake8 batch/ streaming/ \
+            --max-line-length 120 \
+            --extend-ignore E501,W503 \
+            --exclude __pycache__,checkpoints
+        continue-on-error: true
+
+  # ── Job 3: dbt Docs ───────────────────────────────────────
+  docs:
+    name: Generate dbt Docs
+    runs-on: ubuntu-latest
+    needs: dbt-test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: admin
+          POSTGRES_DB: ecommerce
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U admin -d ecommerce"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dbt
+        run: |
+          pip install dbt-core==1.8.7 dbt-postgres==1.8.2
+
+      - name: Initialize database schemas
+        env:
+          PGPASSWORD: admin
+        run: |
+          psql -h localhost -p 5433 -U admin -d ecommerce -f postgres/init.sql
+
+      - name: Install dbt packages
+        run: |
+          dbt deps \
+            --project-dir dbt/ecommerce_dbt \
+            --profiles-dir dbt/ecommerce_dbt
+
+      - name: Generate dbt docs
+        run: |
+          dbt docs generate \
+            --project-dir dbt/ecommerce_dbt \
+            --profiles-dir dbt/ecommerce_dbt \
+            --target dev
+
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload docs artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dbt/ecommerce_dbt/target
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

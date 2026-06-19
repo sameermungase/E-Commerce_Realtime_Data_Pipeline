@@ -14,7 +14,7 @@ select
     total_value,
     event_time,
     processing_time,
-    date_trunc('day', event_time)::date  as order_date,
-    date_trunc('hour', event_time)       as order_hour
+    cast(date_trunc('day', event_time) as date)  as order_date,
+    date_trunc('hour', event_time)               as order_hour
 from {{ source('streaming', 'raw_orders_stream') }}
 where order_id is not null

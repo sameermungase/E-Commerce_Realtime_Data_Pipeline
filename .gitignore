@@ -46,3 +46,13 @@ logs/*.log
 # OS
 .DS_Store
 Thumbs.db
+
+# Great Expectations
+great_expectations/uncommitted/
+great_expectations/checkpoints/
+great_expectations/.ge_store_backend_id
+
+# Google Cloud
+*.json.key
+service-account-*.json
+

@@ -62,3 +62,18 @@ RAW_TABLES = {
     "customers": f"{POSTGRES_SCHEMA}.customers",
     "products": f"{POSTGRES_SCHEMA}.products",
 }
+
+# ──────────────────────────────────────────────
+# Google BigQuery (GCP Cloud Warehouse)
+# ──────────────────────────────────────────────
+GCP_PROJECT = os.environ.get("GCP_PROJECT", "exalted-cogency-499917-n4")
+BQ_DATASET = os.environ.get("BQ_DATASET", "raw")
+ENABLE_BIGQUERY = os.environ.get("ENABLE_BIGQUERY", "false").lower() == "true"
+
+# BigQuery table names (dataset.table format)
+BQ_RAW_TABLES = {
+    "orders": f"{BQ_DATASET}.orders",
+    "order_items": f"{BQ_DATASET}.order_items",
+    "customers": f"{BQ_DATASET}.customers",
+    "products": f"{BQ_DATASET}.products",
+}

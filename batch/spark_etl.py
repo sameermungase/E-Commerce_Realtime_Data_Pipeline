@@ -25,6 +25,9 @@ from batch.config import (
     POSTGRES_USER,
     POSTGRES_PASSWORD,
     RAW_TABLES,
+    GCP_PROJECT,
+    BQ_RAW_TABLES,
+    ENABLE_BIGQUERY,
 )
 
 # pyrefly: ignore [missing-import]
@@ -38,16 +41,25 @@ from pyspark.sql.types import TimestampType, DoubleType
 # ----------------------------------------------
 
 def create_spark_session() -> SparkSession:
-    """Create a SparkSession with PostgreSQL JDBC driver on classpath."""
-    return (
+    """Create a SparkSession with PostgreSQL JDBC driver (and optionally BigQuery connector) on classpath."""
+    builder = (
         SparkSession.builder
         .appName("ecommerce-etl")
         .master("local[*]")
         .config("spark.driver.extraClassPath", str(JDBC_DRIVER_PATH))
         .config("spark.driver.extraJavaOptions", "-Duser.timezone=UTC")
         .config("spark.executor.extraJavaOptions", "-Duser.timezone=UTC")
-        .getOrCreate()
     )
+
+    # Add BigQuery connector when enabled
+    if ENABLE_BIGQUERY:
+        builder = builder.config(
+            "spark.jars.packages",
+            "com.google.cloud.spark:spark-bigquery-with-dependencies_2.12:0.36.1",
+        )
+        print("[CONFIG] BigQuery connector enabled")
+
+    return builder.getOrCreate()
 
 
 # ----------------------------------------------
@@ -210,6 +222,35 @@ def write_to_postgres(df: DataFrame, table_name: str) -> None:
 
 
 # ----------------------------------------------
+# Load to BigQuery (GCP Cloud Warehouse)
+# ----------------------------------------------
+
+def write_to_bigquery(df: DataFrame, table_name: str) -> None:
+    """
+    Write a DataFrame to Google BigQuery using the spark-bigquery-connector.
+
+    Uses Application Default Credentials (ADC) — requires either:
+      - `gcloud auth application-default login` (local dev)
+      - Service account key via GOOGLE_APPLICATION_CREDENTIALS env var
+
+    Args:
+        df: The cleaned DataFrame to write.
+        table_name: Fully qualified BigQuery table (dataset.table).
+    """
+    print(f"[WRITE] Writing to BigQuery table: {GCP_PROJECT}.{table_name}")
+    (
+        df.write
+        .format("bigquery")
+        .option("table", f"{GCP_PROJECT}.{table_name}")
+        .option("temporaryGcsBucket", f"{GCP_PROJECT}-spark-temp")
+        .option("writeMethod", "direct")
+        .mode("overwrite")
+        .save()
+    )
+    print(f"   [OK] {GCP_PROJECT}.{table_name} written successfully")
+
+
+# ----------------------------------------------
 # Main Pipeline
 # ----------------------------------------------
 
@@ -239,9 +280,24 @@ def main():
         write_to_postgres(products, RAW_TABLES["products"])
         write_to_postgres(order_items, RAW_TABLES["order_items"])
 
+        # -- Load to BigQuery (if enabled) --
+        if ENABLE_BIGQUERY:
+            print()
+            print("=" * 60)
+            print(">>> Loading to BigQuery (GCP Cloud Warehouse)")
+            print("=" * 60)
+            write_to_bigquery(orders, BQ_RAW_TABLES["orders"])
+            write_to_bigquery(customers, BQ_RAW_TABLES["customers"])
+            write_to_bigquery(products, BQ_RAW_TABLES["products"])
+            write_to_bigquery(order_items, BQ_RAW_TABLES["order_items"])
+
         print()
         print("=" * 60)
         print("[OK] ETL Pipeline Complete -- All raw tables loaded!")
+        if ENABLE_BIGQUERY:
+            print("     ✅ PostgreSQL + BigQuery")
+        else:
+            print("     ✅ PostgreSQL (BigQuery disabled — set ENABLE_BIGQUERY=true)")
         print("=" * 60)
 
     except Exception as e:

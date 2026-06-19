@@ -10,3 +10,10 @@ ecommerce_dbt:
       dbname: ecommerce
       schema: public
       threads: 4
+    bigquery:
+      type: bigquery
+      method: oauth
+      project: exalted-cogency-499917-n4
+      dataset: ecommerce
+      threads: 4
+      location: US

@@ -1,0 +1,5 @@
+dbt/ecommerce_dbt/target/
+dbt/ecommerce_dbt/dbt_packages/
+dbt/ecommerce_dbt/logs/
+.venv/
+__pycache__/

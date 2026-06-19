@@ -74,10 +74,30 @@ models:
     description: "Staged orders with cleaned timestamps"
     columns:
       - name: order_id
+        description: "Primary key — unique order identifier"
         tests:
           - not_null
           - unique
       - name: customer_id
+        description: "FK to stg_customers"
+        tests:
+          - not_null
+      - name: order_status
+        description: "Current status of the order"
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - delivered
+                - shipped
+                - canceled
+                - unavailable
+                - invoiced
+                - processing
+                - created
+                - approved
+      - name: purchase_timestamp
+        description: "When the order was placed"
         tests:
           - not_null
 
@@ -85,21 +105,62 @@ models:
     description: "Staged customers with trimmed location fields"
     columns:
       - name: customer_id
+        description: "Primary key — unique customer identifier"
         tests:
           - not_null
           - unique
+      - name: customer_city
+        description: "Customer city (trimmed)"
+        tests:
+          - not_null
+      - name: customer_state
+        description: "Customer state (2-letter code)"
+        tests:
+          - not_null
 
   - name: stg_products
     description: "Staged products with cleaned category names"
     columns:
       - name: product_id
+        description: "Primary key — unique product identifier"
         tests:
           - not_null
           - unique
+      - name: product_category
+        description: "Product category name"
 
   - name: stg_order_items
-    description: "Staged order line items"
+    description: "Staged order line items with pricing"
     columns:
       - name: order_id
+        description: "FK to stg_orders"
         tests:
           - not_null
+          - relationships:
+              to: ref('stg_orders')
+              field: order_id
+      - name: order_item_id
+        description: "Line item sequence number within an order"
+        tests:
+          - not_null
+      - name: product_id
+        description: "FK to stg_products"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_products')
+              field: product_id
+      - name: price
+        description: "Item price in BRL"
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: freight_value
+        description: "Shipping cost in BRL"
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
