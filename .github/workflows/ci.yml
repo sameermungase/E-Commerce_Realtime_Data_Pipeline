@@ -58,7 +58,7 @@ jobs:
         env:
           PGPASSWORD: admin
         run: |
-          psql -h localhost -p 5433 -U admin -d ecommerce -f postgres/init.sql
+          psql -v ON_ERROR_STOP=1 -h localhost -p 5433 -U admin -d ecommerce -f postgres/init.sql
 
       - name: Verify database tables exist
         env:
@@ -173,7 +173,7 @@ jobs:
         env:
           PGPASSWORD: admin
         run: |
-          psql -h localhost -p 5433 -U admin -d ecommerce -f postgres/init.sql
+          psql -v ON_ERROR_STOP=1 -h localhost -p 5433 -U admin -d ecommerce -f postgres/init.sql
 
       - name: Install dbt packages
         run: |
