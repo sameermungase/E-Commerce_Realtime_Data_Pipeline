@@ -189,7 +189,9 @@ jobs:
             --target dev
 
       - name: Setup GitHub Pages
+        id: pages
         uses: actions/configure-pages@v4
+        continue-on-error: true
 
       - name: Upload docs artifact
         uses: actions/upload-pages-artifact@v3
@@ -199,3 +201,4 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        if: steps.pages.outcome == 'success'
