@@ -1,10 +1,11 @@
 # ================================================================
-# CI — dbt Test, Lint & Docs
+# CI — dbt Test, Lint, Data Quality & Docs
 # ================================================================
 # Runs on every push and pull request:
-#   1. dbt-test: Spins up Postgres, runs dbt models + tests
-#   2. lint: Runs sqlfluff (SQL) and flake8 (Python) linting
-#   3. docs: Generates dbt docs and deploys to GitHub Pages
+#   1. dbt-test:  Spins up Postgres, runs dbt models + tests
+#   2. lint:      Runs sqlfluff (SQL) and flake8 (Python) linting
+#   3. validate:  Runs Great Expectations on test fixtures
+#   4. docs:      Generates dbt docs and deploys to GitHub Pages
 # ================================================================
 
 name: CI — dbt Test & Lint
@@ -108,24 +109,81 @@ jobs:
 
       - name: Install linting tools
         run: |
-          pip install sqlfluff>=3.0.0 flake8>=7.0.0
+          pip install sqlfluff>=3.0.0 sqlfluff-templater-dbt>=3.0.0 flake8>=7.0.0
+
+      - name: Install dbt (required by sqlfluff-templater-dbt)
+        run: |
+          pip install dbt-core==1.8.7 dbt-postgres==1.8.2
+
+      - name: Install dbt packages
+        run: |
+          dbt deps \
+            --project-dir dbt/ecommerce_dbt \
+            --profiles-dir dbt/ecommerce_dbt
 
       - name: SQLFluff lint (dbt models)
         run: |
           sqlfluff lint dbt/ecommerce_dbt/models/ \
-            --dialect postgres \
-            --ignore templating
-        continue-on-error: true
+            --dialect postgres
 
       - name: Flake8 lint (Python)
         run: |
-          flake8 batch/ streaming/ \
+          flake8 batch/ streaming/ great_expectations/ airflow/ config/ \
             --max-line-length 120 \
             --extend-ignore E501,W503 \
             --exclude __pycache__,checkpoints
-        continue-on-error: true
 
-  # ── Job 3: dbt Docs ───────────────────────────────────────
+  # ── Job 3: Data Quality (Great Expectations) ───────────────
+  validate:
+    name: Great Expectations
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install GE dependencies
+        run: |
+          pip install "great_expectations>=1.0.0,<2.0.0" pandas
+
+      - name: Run Great Expectations on test fixtures
+        run: |
+          python great_expectations/validate_sources.py \
+            --data-dir tests/fixtures \
+            --suites-dir tests/fixtures
+
+  # ── Job 4: Unit Tests (pytest) ─────────────────────────────
+  unit-test:
+    name: Python Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install test dependencies
+        run: |
+          pip install pytest pandas "great_expectations>=1.0.0,<2.0.0"
+
+      - name: Run unit tests (non-Spark)
+        run: |
+          # Run tests that don't require JAVA_HOME (GE validator, fixture tests)
+          # Spark-based tests auto-skip when JAVA_HOME is not set
+          pytest tests/test_validate_sources.py -v --tb=short
+
+  # ── Job 5: dbt Docs ───────────────────────────────────────
   docs:
     name: Generate dbt Docs
     runs-on: ubuntu-latest

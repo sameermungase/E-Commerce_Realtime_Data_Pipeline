@@ -21,9 +21,9 @@ from pathlib import Path
 # Ensure project root is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from streaming.config import KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC, LOG_DIR
+from streaming.config import KAFKA_BOOTSTRAP_SERVERS, KAFKA_TOPIC, LOG_DIR  # noqa: E402
 
-from kafka import KafkaProducer
+from kafka import KafkaProducer  # noqa: E402
 
 # ──────────────────────────────────────────────
 # Logging

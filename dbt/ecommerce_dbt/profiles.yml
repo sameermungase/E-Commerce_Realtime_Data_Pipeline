@@ -3,17 +3,19 @@ ecommerce_dbt:
   outputs:
     dev:
       type: postgres
-      host: localhost
-      user: admin
-      password: admin
-      port: 5433
-      dbname: ecommerce
+      host: "{{ env_var('POSTGRES_HOST', 'localhost') }}"
+      user: "{{ env_var('POSTGRES_USER', 'admin') }}"
+      password: "{{ env_var('POSTGRES_PASSWORD', 'admin') }}"
+      port: "{{ env_var('POSTGRES_PORT', '5433') | int }}"
+      dbname: "{{ env_var('POSTGRES_DB', 'ecommerce') }}"
       schema: public
       threads: 4
-    bigquery:
-      type: bigquery
-      method: oauth
-      project: exalted-cogency-499917-n4
-      dataset: ecommerce
+    athena:
+      type: athena
+      s3_staging_dir: "{{ env_var('ATHENA_S3_STAGING_DIR') }}"
+      s3_data_dir: "s3://{{ env_var('S3_BUCKET_NAME') }}/analytics/"
+      region_name: "{{ env_var('AWS_REGION', 'us-east-1') }}"
+      database: "{{ env_var('ATHENA_DATABASE', 'ecommerce_raw') }}"
+      schema: analytics
       threads: 4
-      location: US
+

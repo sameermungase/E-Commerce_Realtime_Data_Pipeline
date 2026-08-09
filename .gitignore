@@ -22,6 +22,7 @@ hadoop/
 dbt/ecommerce_dbt/target/
 dbt/ecommerce_dbt/dbt_packages/
 dbt/ecommerce_dbt/logs/
+dbt/ecommerce_dbt/.user.yml
 
 # Airflow
 airflow/logs/

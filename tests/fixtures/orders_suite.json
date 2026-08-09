@@ -1,0 +1,76 @@
+{
+  "expectation_suite_name": "orders_suite",
+  "meta": {
+    "great_expectations_version": "1.0.0",
+    "description": "CI expectations for orders fixture (row counts adjusted for small dataset)"
+  },
+  "expectations": [
+    {
+      "expectation_type": "expect_table_row_count_to_be_between",
+      "kwargs": {
+        "min_value": 3,
+        "max_value": 20
+      },
+      "meta": {"notes": "CI fixture has 5 rows"}
+    },
+    {
+      "expectation_type": "expect_column_to_exist",
+      "kwargs": {"column": "order_id"}
+    },
+    {
+      "expectation_type": "expect_column_to_exist",
+      "kwargs": {"column": "customer_id"}
+    },
+    {
+      "expectation_type": "expect_column_to_exist",
+      "kwargs": {"column": "order_status"}
+    },
+    {
+      "expectation_type": "expect_column_to_exist",
+      "kwargs": {"column": "order_purchase_timestamp"}
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {"column": "order_id"}
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {"column": "customer_id"}
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_unique",
+      "kwargs": {"column": "order_id"}
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {"column": "order_status"}
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_in_set",
+      "kwargs": {
+        "column": "order_status",
+        "value_set": [
+          "delivered",
+          "shipped",
+          "canceled",
+          "unavailable",
+          "invoiced",
+          "processing",
+          "created",
+          "approved"
+        ]
+      }
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {"column": "order_purchase_timestamp"}
+    },
+    {
+      "expectation_type": "expect_column_values_to_match_regex",
+      "kwargs": {
+        "column": "order_id",
+        "regex": "^[a-f0-9]{32}$"
+      }
+    }
+  ]
+}

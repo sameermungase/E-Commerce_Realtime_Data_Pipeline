@@ -1,0 +1,6 @@
+order_id,customer_id,order_status,order_purchase_timestamp,order_delivered_customer_date,order_estimated_delivery_date
+a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6,cust_001,delivered,2024-01-15 10:30:00,2024-01-20 14:00:00,2024-01-22 00:00:00
+b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6a7,cust_002,shipped,2024-01-16 11:00:00,,2024-01-25 00:00:00
+c3d4e5f6a7b8c9d0e1f2a3b4c5d6a7b8,cust_003,processing,2024-01-17 09:15:00,,2024-01-28 00:00:00
+d4e5f6a7b8c9d0e1f2a3b4c5d6a7b8c9,cust_004,delivered,2024-01-18 08:00:00,2024-01-23 16:30:00,2024-01-24 00:00:00
+e5f6a7b8c9d0e1f2a3b4c5d6a7b8c9d0,cust_005,canceled,2024-01-19 12:45:00,,2024-01-26 00:00:00

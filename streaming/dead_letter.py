@@ -19,7 +19,7 @@ from pathlib import Path
 # Ensure project root is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from streaming.config import BAD_RECORDS_DIR
+from streaming.config import BAD_RECORDS_DIR  # noqa: E402
 
 logger = logging.getLogger("dead_letter")
 

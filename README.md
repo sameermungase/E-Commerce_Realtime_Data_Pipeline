@@ -2,7 +2,7 @@
 
 [![CI — dbt Test & Lint](https://github.com/sameermungase/E-Commerce_Realtime_Data_Pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/sameermungase/E-Commerce_Realtime_Data_Pipeline/actions/workflows/ci.yml)
 
-A production-style **batch + streaming data pipeline** built with PySpark, Apache Kafka, Spark Structured Streaming, PostgreSQL, Google BigQuery (GCP), dbt, Great Expectations, Apache Airflow, and GitHub Actions CI/CD using the Brazilian E-Commerce (Olist) dataset.
+A production-style **batch + streaming data pipeline** built with PySpark, Apache Kafka, Spark Structured Streaming, PostgreSQL, AWS Data Lakehouse (Amazon S3 + Athena), dbt, Great Expectations, Apache Airflow, and GitHub Actions CI/CD using the Brazilian E-Commerce (Olist) dataset.
 
 ## Architecture
 
@@ -13,13 +13,14 @@ flowchart TD
     V["🔍 Great Expectations\n(Data Quality Gate)"] --> B
     A["📦 Olist CSV Dataset\n(4 files: orders, customers,\nproducts, order_items)"] --> V
     B["⚡ PySpark ETL\n(Clean, Validate, Type Cast)"] --> C
-    B --> BQ["☁️ Google BigQuery — Raw Layer\n(ecommerce_raw.orders, .customers,\n.products, .order_items)"]
+    B --> S3["☁️ Amazon S3 — Raw Layer\n(s3://bucket/raw/orders,\ncustomers, products,\norder_items) [Optional]"]
     C["🗄️ PostgreSQL — Raw Layer\n(raw.orders, raw.customers,\nraw.products, raw.order_items)"] --> D
-    BQ --> DBQ["🔧 dbt — Staging Layer (BigQuery)\n(stg_orders, stg_customers,\nstg_products, stg_order_items)"]
+    S3 --> ATHENA["🔎 AWS Athena + Glue Catalog\n(Serverless SQL Queries)"]
+    ATHENA --> DDBT["🔧 dbt — Staging Layer (Athena)\n(stg_orders, stg_customers,\nstg_products, stg_order_items)"]
     D["🔧 dbt — Staging Layer\n(stg_orders, stg_customers,\nstg_products, stg_order_items)"] --> E
-    DBQ --> EBQ["📊 dbt — Marts Layer (BigQuery)\n(fact_orders, dim_customers,\ndim_products)"]
+    DDBT --> EMART["📊 dbt — Marts Layer (Athena)\n(fact_orders, dim_customers,\ndim_products)"]
     E["📊 dbt — Marts Layer\n(fact_orders, dim_customers,\ndim_products)"] --> F
-    EBQ --> F["📈 Analytics / Reporting"]
+    EMART --> F["📈 Analytics / Reporting"]
 
     G["🕐 Apache Airflow\n(@daily at 2 AM)"] -.-> |orchestrates| V
     G -.-> |orchestrates| D
@@ -30,11 +31,12 @@ flowchart TD
     style V fill:#ef4444,stroke:#333,color:#fff
     style B fill:#2563eb,stroke:#333,color:#fff
     style C fill:#0891b2,stroke:#333,color:#fff
-    style BQ fill:#4285F4,stroke:#333,color:#fff
+    style S3 fill:#FF9900,stroke:#333,color:#fff
     style D fill:#059669,stroke:#333,color:#fff
-    style DBQ fill:#34A853,stroke:#333,color:#fff
+    style ATHENA fill:#8C4FFF,stroke:#333,color:#fff
+    style DDBT fill:#34A853,stroke:#333,color:#fff
     style E fill:#d97706,stroke:#333,color:#fff
-    style EBQ fill:#FBBC04,stroke:#333,color:#000
+    style EMART fill:#FBBC04,stroke:#333,color:#000
     style F fill:#dc2626,stroke:#333,color:#fff
     style G fill:#4b5563,stroke:#333,color:#fff
     style CI fill:#8b5cf6,stroke:#333,color:#fff
@@ -90,7 +92,8 @@ flowchart LR
 | **Apache Kafka** | Event streaming platform | 7.6.0 (Confluent) |
 | **Spark Structured Streaming** | Real-time stream processing | 3.5.1 |
 | **PostgreSQL** | Local data warehouse (Dockerized) | 16 |
-| **Google BigQuery** | Cloud data warehouse (GCP Sandbox) | — |
+| **Amazon S3** | Cloud data lakehouse storage layer | — |
+| **AWS Athena** | Serverless query engine (Presto) | — |
 | **dbt** | Data transformation & modeling | 1.8.7 |
 | **Great Expectations** | Data quality validation | 0.18+ |
 | **Apache Airflow** | Workflow orchestration | 2.10.0 |
@@ -129,12 +132,14 @@ flowchart LR
 **Source Table:**
 - `streaming.raw_orders_stream` — Landing table for Spark Structured Streaming data
 
-### BigQuery (Cloud Warehouse)
+### AWS Data Lakehouse (Cloud) — Optional
 
-Same star schema deployed to Google BigQuery via `dbt run --target bigquery`:
-- `ecommerce_raw.*` — Raw tables loaded by PySpark
-- `ecommerce.staging.*` — Staging views
-- `ecommerce.analytics.*` — Fact and dimension tables
+> **Optional:** AWS Lakehouse support is disabled by default. Set `ENABLE_AWS_LAKEHOUSE=true` and configure `S3_BUCKET_NAME`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` in `.env` to enable it.
+
+Same star schema deployed to AWS Athena via `dbt run --target athena`:
+- `s3://<bucket>/raw/*` — Raw Parquet tables loaded by PySpark
+- `staging.*` — Staging views (Athena/Glue Catalog)
+- `analytics.*` — Fact and dimension tables (Athena/Glue Catalog)
 
 ## Setup
 
@@ -144,7 +149,7 @@ Same star schema deployed to Google BigQuery via `dbt run --target bigquery`:
 - Python 3.12
 - Java 21 (for PySpark)
 - Git
-- Google Cloud SDK (`gcloud`) — for BigQuery (optional)
+- AWS CLI (`aws configure`) — for S3 + Athena (optional)
 
 ### 1. Clone & Setup
 
@@ -206,10 +211,10 @@ $env:JAVA_HOME = "path/to/java21"
 python batch/spark_etl.py
 # or: make etl
 
-# Run PySpark ETL (PostgreSQL + BigQuery)
-$env:ENABLE_BIGQUERY = "true"
+# Run PySpark ETL (PostgreSQL + S3 Lakehouse)
+$env:ENABLE_AWS_LAKEHOUSE = "true"
 python batch/spark_etl.py
-# or: make etl-bq
+# or: make etl-s3
 
 # Install dbt packages (first time only)
 dbt deps --project-dir dbt/ecommerce_dbt --profiles-dir dbt/ecommerce_dbt
@@ -250,23 +255,31 @@ airflow dags trigger daily_batch_pipeline
 
 > **Pipeline:** `validate_sources` → `spark_etl` → `dbt_run` → `dbt_test`
 
-### 10. BigQuery Setup (GCP)
+### 10. AWS Data Lakehouse Setup — Optional
+
+> **Skip this step** unless you want to dual-load into Amazon S3 and query with AWS Athena. The pipeline runs fully on PostgreSQL without it.
 
 ```bash
-# 1. Authenticate with Google Cloud
-gcloud auth login
-gcloud auth application-default login
-gcloud config set project exalted-cogency-499917-n4
+# 1. Configure AWS CLI credentials
+aws configure
+# Enter: AWS Access Key ID, Secret Access Key, Region (us-east-1)
 
-# 2. Create the BigQuery dataset
-bq mk --dataset exalted-cogency-499917-n4:ecommerce_raw
+# 2. Set your AWS config in .env
+echo "AWS_REGION=us-east-1" >> .env
+echo "S3_BUCKET_NAME=your-s3-bucket-name" >> .env
+echo "ATHENA_DATABASE=ecommerce_raw" >> .env
+echo "ATHENA_S3_STAGING_DIR=s3://your-s3-bucket-name/athena-staging/" >> .env
 
-# 3. Run ETL with BigQuery enabled
-$env:ENABLE_BIGQUERY = "true"
+# 3. Create the S3 bucket and Glue database
+aws s3 mb s3://your-s3-bucket-name
+aws glue create-database --database-input '{"Name": "ecommerce_raw"}'
+
+# 4. Run ETL with S3 Lakehouse enabled
+$env:ENABLE_AWS_LAKEHOUSE = "true"
 python batch/spark_etl.py
 
-# 4. Run dbt against BigQuery
-dbt run --project-dir dbt/ecommerce_dbt --profiles-dir dbt/ecommerce_dbt --target bigquery
+# 5. Run dbt against Athena
+dbt run --project-dir dbt/ecommerce_dbt --profiles-dir dbt/ecommerce_dbt --target athena
 ```
 
 ## Data Quality
@@ -316,12 +329,12 @@ make infra          # Start Docker infrastructure
 make infra-down     # Stop Docker infrastructure
 make validate       # Run Great Expectations on raw CSVs
 make etl            # Run PySpark batch ETL (PostgreSQL)
-make etl-bq         # Run PySpark batch ETL (PostgreSQL + BigQuery)
+make etl-s3         # Run PySpark batch ETL (PostgreSQL + S3 Lakehouse)
 make stream-producer # Start Kafka producer
 make stream-consumer # Start Spark Streaming consumer
 make dbt-deps       # Install dbt packages
 make dbt-run        # Run dbt models (PostgreSQL)
-make dbt-run-bq     # Run dbt models (BigQuery)
+make dbt-run-athena # Run dbt models (Athena)
 make dbt-test       # Run dbt tests
 make dbt-docs       # Generate and serve dbt docs
 make lint           # Run all linters (SQL + Python)
@@ -339,7 +352,7 @@ make clean          # Stop Docker + clean temp files
 │   └── dags/
 │       └── daily_batch_pipeline.py # Airflow DAG: validate → ETL → dbt → test
 ├── batch/
-│   ├── config.py                   # Batch config (PostgreSQL + BigQuery)
+│   ├── config.py                   # Batch config (PostgreSQL + S3 Lakehouse)
 │   ├── spark_etl.py                # PySpark ETL (dual-warehouse support)
 │   └── jars/                       # JDBC driver (gitignored)
 ├── streaming/
@@ -352,8 +365,7 @@ make clean          # Stop Docker + clean temp files
 ├── dbt/ecommerce_dbt/
 │   ├── models/
 │   │   ├── staging/                # Staging views (stg_*)
-│   │   │   ├── schema.yml          # Source + model tests
-│   │   │   └── sources_bigquery.yml # BigQuery source definitions
+│   │   │   └── schema.yml          # Source + model tests (Postgres + streaming)
 │   │   └── marts/                  # Fact + dimension tables
 │   │       ├── fact_orders.sql
 │   │       ├── fact_orders_realtime.sql
@@ -365,7 +377,7 @@ make clean          # Stop Docker + clean temp files
 │   ├── macros/
 │   ├── packages.yml                # dbt-utils dependency
 │   ├── dbt_project.yml
-│   └── profiles.yml                # PostgreSQL + BigQuery targets
+│   └── profiles.yml                # PostgreSQL + Athena targets
 ├── great_expectations/
 │   ├── great_expectations.yml      # GE project config
 │   ├── expectations/
@@ -392,7 +404,7 @@ make clean          # Stop Docker + clean temp files
 
 | Decision | Rationale |
 |----------|-----------|
-| **Dual warehouse (PostgreSQL + BigQuery)** | PostgreSQL for local dev, BigQuery for cloud — demonstrates multi-target dbt proficiency |
+| **Dual warehouse (PostgreSQL + S3 Lakehouse)** | PostgreSQL for local dev, S3 + Athena for cloud — demonstrates multi-target dbt proficiency |
 | **`foreachBatch` for JDBC writes** | Better control over retries, batching, and custom sink logic vs. direct JDBC sink |
 | **Watermarking (10 min)** | Handles late-arriving data while bounding state size — common interview topic |
 | **Dead letter queue** | Invalid records are captured, not silently dropped — demonstrates production thinking |

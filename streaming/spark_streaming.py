@@ -27,23 +27,20 @@ from pathlib import Path
 # Ensure project root is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from streaming.config import (
+from streaming.config import (  # noqa: E402
     KAFKA_BOOTSTRAP_SERVERS,
     KAFKA_TOPIC,
     CHECKPOINT_DIR,
     LOG_DIR,
-    JDBC_URL,
-    POSTGRES_USER,
-    POSTGRES_PASSWORD,
     STREAMING_TABLE,
 )
 
-from pyspark.sql import SparkSession, DataFrame
-from pyspark.sql import functions as F
-from pyspark.sql.types import TimestampType
+from pyspark.sql import SparkSession, DataFrame  # noqa: E402
+from pyspark.sql import functions as F  # noqa: E402
 
-from streaming.schema import ORDER_STREAM_SCHEMA
-from streaming.dead_letter import save_bad_records
+from streaming.schema import ORDER_STREAM_SCHEMA  # noqa: E402
+from streaming.dead_letter import save_bad_records  # noqa: E402
+from streaming.postgres_sink import write_to_postgres  # noqa: E402
 
 # ──────────────────────────────────────────────
 # Logging
@@ -114,9 +111,9 @@ def process_batch(batch_df: DataFrame, batch_id: int) -> None:
     """
     Process a single micro-batch from Spark Structured Streaming.
 
-    1. Separate valid and invalid records
-    2. Write valid records to PostgreSQL
-    3. Route invalid records to dead-letter queue
+    1. Tag every row with an `is_valid` boolean (single pass, cached)
+    2. Route invalid records to the dead-letter queue
+    3. Write valid records to PostgreSQL via postgres_sink
 
     Args:
         batch_df: The micro-batch DataFrame.
@@ -129,50 +126,52 @@ def process_batch(batch_df: DataFrame, batch_id: int) -> None:
     total = batch_df.count()
     logger.info("Batch %d: received %d records", batch_id, total)
 
-    # ── Separate valid vs invalid records ────────────
-    valid_df = batch_df.filter(
-        (F.col("amount") > 0)
-        & (F.col("quantity") > 0)
-        & F.col("order_id").isNotNull()
-        & F.col("customer_id").isNotNull()
-        & F.col("product_id").isNotNull()
+    # ── Single pass: tag valid vs invalid in one .withColumn() ──
+    # Using is_valid avoids the expensive subtract() shuffle and
+    # correctly handles exact-duplicate records.
+    batch_df = batch_df.withColumn(
+        "is_valid",
+        (
+            (F.col("amount") > 0)
+            & (F.col("quantity") > 0)
+            & F.col("order_id").isNotNull()
+            & F.col("customer_id").isNotNull()
+            & F.col("product_id").isNotNull()
+        )
     )
 
-    invalid_df = batch_df.subtract(valid_df)
-    invalid_count = invalid_df.count()
-
-    if invalid_count > 0:
-        logger.warning(
-            "Batch %d: %d invalid records detected — routing to dead letter",
-            batch_id,
-            invalid_count,
-        )
-        save_bad_records(invalid_df, batch_id, "Failed data quality checks")
-
-    # ── Write valid records to PostgreSQL ────────────
-    valid_count = valid_df.count()
-    if valid_count == 0:
-        logger.warning("Batch %d: no valid records to write", batch_id)
-        return
-
-    logger.info("Batch %d: writing %d valid records to %s", batch_id, valid_count, STREAMING_TABLE)
+    # Cache once — valid and invalid filters read from the same scan
+    batch_df.cache()
 
     try:
-        (
-            valid_df.write
-            .format("jdbc")
-            .option("url", JDBC_URL)
-            .option("dbtable", STREAMING_TABLE)
-            .option("user", POSTGRES_USER)
-            .option("password", POSTGRES_PASSWORD)
-            .option("driver", "org.postgresql.Driver")
-            .mode("append")
-            .save()
+        invalid_df = batch_df.filter(~F.col("is_valid")).drop("is_valid")
+        invalid_count = invalid_df.count()
+
+        if invalid_count > 0:
+            logger.warning(
+                "Batch %d: %d invalid records detected — routing to dead letter",
+                batch_id,
+                invalid_count,
+            )
+            save_bad_records(invalid_df, batch_id, "Failed data quality checks")
+
+        # ── Write valid records via consolidated postgres_sink ────
+        valid_df = batch_df.filter(F.col("is_valid")).drop("is_valid")
+        valid_count = valid_df.count()
+
+        if valid_count == 0:
+            logger.warning("Batch %d: no valid records to write", batch_id)
+            return
+
+        logger.info(
+            "Batch %d: writing %d valid records to %s",
+            batch_id, valid_count, STREAMING_TABLE,
         )
-        logger.info("Batch %d: ✅ %d records written successfully", batch_id, valid_count)
-    except Exception as e:
-        logger.error("Batch %d: ❌ Write failed — %s", batch_id, e)
-        raise
+        write_to_postgres(valid_df, batch_id)
+
+    finally:
+        # Always unpersist to free executor memory
+        batch_df.unpersist()
 
 
 # ──────────────────────────────────────────────
@@ -180,6 +179,10 @@ def process_batch(batch_df: DataFrame, batch_id: int) -> None:
 # ──────────────────────────────────────────────
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+
     logger.info("=" * 60)
     logger.info("Spark Structured Streaming Consumer — Starting")
     logger.info("  Kafka:      %s", KAFKA_BOOTSTRAP_SERVERS)

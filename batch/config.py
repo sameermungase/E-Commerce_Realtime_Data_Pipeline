@@ -1,34 +1,46 @@
 """
-Centralized configuration for the E-Commerce ETL pipeline.
+Batch pipeline configuration.
 
-All paths, database credentials, and environment settings are defined here
-so that spark_etl.py and other scripts can import them cleanly.
+Imports shared settings from config.settings and adds batch-specific
+paths (CSV files, raw table names, S3 lakehouse paths, JDBC driver JAR).
 """
 
-import os
+import sys
 from pathlib import Path
 
-# ──────────────────────────────────────────────
-# Project Root (files/ directory)
-# ──────────────────────────────────────────────
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Ensure project root is importable
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-# ──────────────────────────────────────────────
-# Java 21 — required for PySpark 3.5.1
-# ──────────────────────────────────────────────
-JAVA_HOME = r"C:\Users\snowp\OneDrive\Desktop\Projects\DS_project\Java"
-os.environ["JAVA_HOME"] = JAVA_HOME
+from config.settings import (  # noqa: E402
+    PROJECT_ROOT,
+    POSTGRES_SCHEMA,
+    ENABLE_AWS_LAKEHOUSE,
+    S3_BUCKET_NAME,
+    ATHENA_DATABASE,
+    AWS_REGION,
+    AWS_ACCESS_KEY_ID,
+    AWS_SECRET_ACCESS_KEY,
+    JAVA_HOME,
+    JDBC_URL,
+    POSTGRES_USER,
+    POSTGRES_PASSWORD,
+)
 
-# ──────────────────────────────────────────────
-# Hadoop — required for PySpark on Windows
-# ──────────────────────────────────────────────
-HADOOP_HOME = str(PROJECT_ROOT / "hadoop")
-os.environ["HADOOP_HOME"] = HADOOP_HOME
+# Re-export shared settings so existing imports in spark_etl.py keep working
+__all__ = [
+    "PROJECT_ROOT", "JAVA_HOME", "JDBC_URL",
+    "POSTGRES_USER", "POSTGRES_PASSWORD",
+    "ENABLE_AWS_LAKEHOUSE", "S3_BUCKET_NAME", "ATHENA_DATABASE",
+    "AWS_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
+    "CSV_FILES", "RAW_TABLES", "S3_RAW_PATHS", "JDBC_DRIVER_PATH",
+]
 
 # ──────────────────────────────────────────────
 # Dataset Paths
 # ──────────────────────────────────────────────
 DATA_DIR = PROJECT_ROOT / "data" / "olist"
+if not DATA_DIR.exists() or not any(DATA_DIR.glob("*.csv")):
+    DATA_DIR = PROJECT_ROOT / "tests" / "fixtures"
 
 CSV_FILES = {
     "orders": DATA_DIR / "olist_orders_dataset.csv",
@@ -38,19 +50,8 @@ CSV_FILES = {
 }
 
 # ──────────────────────────────────────────────
-# PostgreSQL Connection
-# ──────────────────────────────────────────────
-POSTGRES_HOST = "localhost"
-POSTGRES_PORT = 5433
-POSTGRES_DB = "ecommerce"
-POSTGRES_USER = "admin"
-POSTGRES_PASSWORD = "admin"
-POSTGRES_SCHEMA = "raw"
-
-# JDBC URL for PySpark
-JDBC_URL = f"jdbc:postgresql://{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
-
 # JDBC driver JAR path
+# ──────────────────────────────────────────────
 JDBC_DRIVER_PATH = PROJECT_ROOT / "batch" / "jars" / "postgresql-42.7.3.jar"
 
 # ──────────────────────────────────────────────
@@ -64,16 +65,12 @@ RAW_TABLES = {
 }
 
 # ──────────────────────────────────────────────
-# Google BigQuery (GCP Cloud Warehouse)
+# Amazon S3 Lakehouse Paths (Parquet format)
 # ──────────────────────────────────────────────
-GCP_PROJECT = os.environ.get("GCP_PROJECT", "exalted-cogency-499917-n4")
-BQ_DATASET = os.environ.get("BQ_DATASET", "raw")
-ENABLE_BIGQUERY = os.environ.get("ENABLE_BIGQUERY", "false").lower() == "true"
-
-# BigQuery table names (dataset.table format)
-BQ_RAW_TABLES = {
-    "orders": f"{BQ_DATASET}.orders",
-    "order_items": f"{BQ_DATASET}.order_items",
-    "customers": f"{BQ_DATASET}.customers",
-    "products": f"{BQ_DATASET}.products",
+S3_RAW_PATHS = {
+    "orders": f"s3a://{S3_BUCKET_NAME}/raw/orders/",
+    "order_items": f"s3a://{S3_BUCKET_NAME}/raw/order_items/",
+    "customers": f"s3a://{S3_BUCKET_NAME}/raw/customers/",
+    "products": f"s3a://{S3_BUCKET_NAME}/raw/products/",
 }
+

@@ -1,0 +1,49 @@
+version: 2
+
+exposures:
+
+  - name: ecommerce_analytics_dashboard
+    label: "E-Commerce Analytics Dashboard"
+    type: dashboard
+    maturity: medium
+    description: >
+      Business dashboard showing order volume, revenue trends,
+      and customer/product breakdowns. Reads from the dbt-built
+      star schema in the analytics schema.
+    owner:
+      name: Data Engineering
+      email: data-engineering@example.com
+    depends_on:
+      - ref('fact_orders')
+      - ref('dim_customers')
+      - ref('dim_products')
+
+  - name: realtime_ops_dashboard
+    label: "Real-Time Operations Dashboard"
+    type: dashboard
+    maturity: low
+    description: >
+      Operational dashboard tracking live order event stream.
+      Refreshed on every dbt incremental run (via Airflow scheduler).
+      Reads from fact_orders_realtime which is backed by Kafka ingestion.
+    owner:
+      name: Data Engineering
+      email: data-engineering@example.com
+    depends_on:
+      - ref('fact_orders_realtime')
+
+  - name: airflow_daily_pipeline
+    label: "Daily Batch Pipeline (Airflow)"
+    type: application
+    maturity: high
+    description: >
+      Apache Airflow DAG that orchestrates the full batch pipeline daily at 2 AM:
+      Great Expectations → PySpark ETL → dbt run → dbt test.
+      Writes to PostgreSQL raw schema; dbt builds the star schema on top.
+    owner:
+      name: Data Engineering
+      email: data-engineering@example.com
+    depends_on:
+      - ref('fact_orders')
+      - ref('dim_customers')
+      - ref('dim_products')

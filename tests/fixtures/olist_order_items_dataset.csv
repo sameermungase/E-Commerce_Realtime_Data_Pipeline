@@ -1,0 +1,6 @@
+order_id,order_item_id,product_id,seller_id,price,freight_value
+a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6,1,f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6,seller_001,199.90,15.50
+a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6,2,a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7,seller_002,349.00,25.00
+b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6a7,1,b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8,seller_001,59.90,8.75
+c3d4e5f6a7b8c9d0e1f2a3b4c5d6a7b8,1,f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6,seller_003,199.90,12.00
+d4e5f6a7b8c9d0e1f2a3b4c5d6a7b8c9,1,c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9,seller_002,89.50,10.25

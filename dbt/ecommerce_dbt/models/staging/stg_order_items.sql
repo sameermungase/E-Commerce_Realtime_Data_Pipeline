@@ -9,5 +9,6 @@ select
     price,
     freight_value
 from {{ source('raw', 'order_items') }}
-where order_id is not null
-  and product_id is not null
+where
+    order_id is not null
+    and product_id is not null

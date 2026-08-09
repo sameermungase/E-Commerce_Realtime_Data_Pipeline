@@ -1,11 +1,12 @@
 """
-Great Expectations — Source Data Validator
+Great Expectations — Source Data Validator (GX 1.x Core API)
 
 Pre-ETL data quality gate: validates all 4 raw Olist CSV files
 against their expectation suites before they enter the pipeline.
 
 Usage:
     python great_expectations/validate_sources.py
+    python great_expectations/validate_sources.py --data-dir tests/fixtures --suites-dir tests/fixtures
 
 Exit Codes:
     0 — All suites passed
@@ -16,22 +17,21 @@ Architecture:
     (Runs BEFORE spark_etl.py)
 """
 
+import argparse
 import json
 import sys
 from pathlib import Path
 
 import pandas as pd
 import great_expectations as gx
-from great_expectations.core.expectation_suite import ExpectationSuite
-from great_expectations.core.expectation_configuration import ExpectationConfiguration
-from great_expectations.dataset import PandasDataset
+import great_expectations.expectations as gxe
 
 # ──────────────────────────────────────────────
-# Paths
+# Paths (defaults, overridable via CLI args)
 # ──────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = PROJECT_ROOT / "data" / "olist"
-EXPECTATIONS_DIR = Path(__file__).resolve().parent / "expectations"
+DEFAULT_DATA_DIR = PROJECT_ROOT / "data" / "olist"
+DEFAULT_EXPECTATIONS_DIR = Path(__file__).resolve().parent / "expectations"
 
 # ──────────────────────────────────────────────
 # Dataset → Suite Mapping
@@ -56,6 +56,14 @@ VALIDATION_CONFIG = {
 }
 
 
+def snake_to_pascal(name: str) -> str:
+    """Convert snake_case expectation type to PascalCase class name.
+
+    Example: expect_column_values_to_not_be_null → ExpectColumnValuesToNotBeNull
+    """
+    return "".join(word.capitalize() for word in name.split("_"))
+
+
 def load_suite(suite_path: Path) -> list:
     """Load expectations from a JSON suite file."""
     with open(suite_path, "r") as f:
@@ -63,19 +71,33 @@ def load_suite(suite_path: Path) -> list:
     return suite_data.get("expectations", [])
 
 
-def validate_dataset(name: str, config: dict) -> dict:
+def validate_dataset(
+    context,
+    data_source,
+    name: str,
+    config: dict,
+    data_dir: Path,
+    suites_dir: Path,
+) -> dict:
     """
     Validate a single CSV dataset against its expectation suite.
 
+    Uses the GX 1.x Core API: EphemeralDataContext → PandasDatasource
+    → DataFrameAsset → BatchDefinition → ExpectationSuite → ValidationDefinition.
+
     Args:
+        context: GX EphemeralDataContext
+        data_source: Pandas data source added to the context
         name: Dataset name (e.g., 'orders')
         config: Dict with 'csv_file' and 'suite_file' keys
+        data_dir: Directory containing CSV files
+        suites_dir: Directory containing expectation suite JSON files
 
     Returns:
         Dict with 'name', 'success', 'total', 'passed', 'failed', 'details'
     """
-    csv_path = DATA_DIR / config["csv_file"]
-    suite_path = EXPECTATIONS_DIR / config["suite_file"]
+    csv_path = data_dir / config["csv_file"]
+    suite_path = suites_dir / config["suite_file"]
 
     print(f"\n{'─' * 60}")
     print(f"  Validating: {name}")
@@ -106,37 +128,54 @@ def validate_dataset(name: str, config: dict) -> dict:
             "details": "Suite file not found",
         }
 
-    # Load CSV into PandasDataset
+    # Load CSV into pandas DataFrame
     df = pd.read_csv(csv_path)
-    ge_df = PandasDataset(df)
     print(f"  Loaded {len(df):,} rows, {len(df.columns)} columns")
 
-    # Load and run expectations
-    expectations = load_suite(suite_path)
-    total = len(expectations)
+    # Build GX data asset and batch
+    asset = data_source.add_dataframe_asset(name=name)
+    batch_def = asset.add_batch_definition_whole_dataframe(f"{name}_batch")
+
+    # Load expectations from JSON and build suite
+    expectations_json = load_suite(suite_path)
+    suite = gx.ExpectationSuite(name=f"{name}_suite")
+
+    for exp in expectations_json:
+        exp_type = exp["expectation_type"]
+        kwargs = exp.get("kwargs", {})
+        try:
+            exp_class = getattr(gxe, snake_to_pascal(exp_type))
+            suite.add_expectation(exp_class(**kwargs))
+        except AttributeError:
+            print(f"  ⚠️  Unknown expectation type: {exp_type} — skipping")
+
+    suite = context.suites.add(suite)
+
+    # Create validation definition and run
+    validation_def = gx.ValidationDefinition(
+        name=f"validate_{name}",
+        data=batch_def,
+        suite=suite,
+    )
+    validation_def = context.validation_definitions.add(validation_def)
+    validation_result = validation_def.run(batch_parameters={"dataframe": df})
+
+    # Process results
+    total = len(validation_result.results)
     passed = 0
     failed = 0
     failure_details = []
 
-    for exp in expectations:
-        exp_type = exp["expectation_type"]
-        kwargs = exp.get("kwargs", {})
-
-        try:
-            result = getattr(ge_df, exp_type)(**kwargs)
-            if result["success"]:
-                passed += 1
-                print(f"  ✅ {exp_type}")
-            else:
-                failed += 1
-                detail = f"{exp_type} — kwargs: {kwargs}"
-                failure_details.append(detail)
-                print(f"  ❌ {exp_type}")
-        except Exception as e:
+    for r in validation_result.results:
+        exp_type = r.expectation_config.type
+        if r.success:
+            passed += 1
+            print(f"  ✅ {exp_type}")
+        else:
             failed += 1
-            detail = f"{exp_type} — ERROR: {e}"
+            detail = f"{exp_type} — kwargs: {r.expectation_config.kwargs}"
             failure_details.append(detail)
-            print(f"  ❌ {exp_type} (error: {e})")
+            print(f"  ❌ {exp_type}")
 
     success = failed == 0
     status = "PASSED ✅" if success else "FAILED ❌"
@@ -153,14 +192,43 @@ def validate_dataset(name: str, config: dict) -> dict:
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+
+    parser = argparse.ArgumentParser(
+        description="Great Expectations — Source Data Validator"
+    )
+    parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=DEFAULT_DATA_DIR,
+        help="Directory containing CSV files to validate",
+    )
+    parser.add_argument(
+        "--suites-dir",
+        type=Path,
+        default=DEFAULT_EXPECTATIONS_DIR,
+        help="Directory containing expectation suite JSON files",
+    )
+    args = parser.parse_args()
+
     print("=" * 60)
     print("  Great Expectations — Source Data Validation")
     print("  Pre-ETL Quality Gate")
     print("=" * 60)
 
+    # Create ephemeral GX context and pandas data source
+    context = gx.get_context(mode="ephemeral")
+    data_source = context.data_sources.add_pandas("csv_source")
+
     results = []
     for name, config in VALIDATION_CONFIG.items():
-        result = validate_dataset(name, config)
+        result = validate_dataset(
+            context, data_source, name, config,
+            data_dir=args.data_dir,
+            suites_dir=args.suites_dir,
+        )
         results.append(result)
 
     # ── Summary Report ─────────────────────────

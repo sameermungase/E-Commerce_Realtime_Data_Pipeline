@@ -5,16 +5,16 @@ services:
     image: postgres:16
     container_name: ecommerce_postgres
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: admin
-      POSTGRES_DB: ecommerce
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin}
+      POSTGRES_DB: ${POSTGRES_DB:-ecommerce}
     ports:
-      - "5433:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d ecommerce"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-ecommerce}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -80,5 +80,55 @@ services:
       kafka-topics --describe --bootstrap-server kafka:9092 --topic orders_stream
     restart: "no"
 
+  # ── Airflow: One-shot DB migration ─────────────────────────
+  airflow-init:
+    image: apache/airflow:2.10.0
+    container_name: ecommerce_airflow_init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: >-
+        postgresql+psycopg2://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-admin}@postgres:5432/${POSTGRES_DB:-ecommerce}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_USER:-admin}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_PASSWORD:-admin}
+    command: version
+    restart: "no"
+
+  # ── Airflow: Standalone scheduler + webserver ───────────────
+  airflow-standalone:
+    image: apache/airflow:2.10.0
+    container_name: ecommerce_airflow
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: >-
+        postgresql+psycopg2://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-admin}@postgres:5432/${POSTGRES_DB:-ecommerce}
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+      # Pipeline paths — override VENV_PYTHON if you install deps inside the image
+      PROJECT_DIR: /opt/airflow/project
+      VENV_PYTHON: /usr/local/bin/python
+      DBT_EXE: /usr/local/bin/dbt
+      # JAVA_HOME must be set in your .env (required for PySpark tasks)
+      JAVA_HOME: ${JAVA_HOME}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - .:/opt/airflow/project:ro        # project root (read-only)
+      - airflow-db:/opt/airflow          # Airflow metadata storage
+    ports:
+      - "8080:8080"
+    command: standalone
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  airflow-db:

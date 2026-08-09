@@ -1,0 +1,48 @@
+{
+  "expectation_suite_name": "products_suite",
+  "meta": {
+    "great_expectations_version": "1.0.0",
+    "description": "CI expectations for products fixture (row counts adjusted for small dataset)"
+  },
+  "expectations": [
+    {
+      "expectation_type": "expect_table_row_count_to_be_between",
+      "kwargs": {
+        "min_value": 3,
+        "max_value": 20
+      },
+      "meta": {"notes": "CI fixture has 5 rows"}
+    },
+    {
+      "expectation_type": "expect_column_to_exist",
+      "kwargs": {"column": "product_id"}
+    },
+    {
+      "expectation_type": "expect_column_to_exist",
+      "kwargs": {"column": "product_category_name"}
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {"column": "product_id"}
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_unique",
+      "kwargs": {"column": "product_id"}
+    },
+    {
+      "expectation_type": "expect_column_values_to_match_regex",
+      "kwargs": {
+        "column": "product_id",
+        "regex": "^[a-f0-9]{32}$"
+      }
+    },
+    {
+      "expectation_type": "expect_column_value_lengths_to_be_between",
+      "kwargs": {
+        "column": "product_category_name",
+        "min_value": 1,
+        "max_value": 100
+      }
+    }
+  ]
+}

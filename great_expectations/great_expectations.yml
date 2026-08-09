@@ -1,5 +1,5 @@
 # ================================================================
-# Great Expectations Configuration
+# Great Expectations Configuration (GX 1.x)
 # ================================================================
 # Data quality validation for raw CSV files before ETL ingestion.
 #
@@ -8,22 +8,20 @@
 #
 # This runs as a pre-ETL gate — if any suite fails, the pipeline
 # should halt before loading invalid data into the warehouse.
+#
+# Note: validate_sources.py uses an EphemeralDataContext, so this
+# file serves as documentation only. The runtime context is created
+# programmatically in the validation script.
 # ================================================================
 
-config_version: 3.0
+config_version: 4.0
 
-datasources:
-  olist_csv:
-    class_name: Datasource
-    execution_engine:
-      class_name: PandasExecutionEngine
-    data_connectors:
-      default_runtime_data_connector:
-        class_name: RuntimeDataConnector
-        batch_identifiers:
-          - default_identifier_name
+fluent_datasources:
+  csv_source:
+    type: pandas
 
-config_variables_file_path: uncommitted/config_variables.yml
+expectations_store_name: expectations_store
+validations_store_name: validations_store
 
 stores:
   expectations_store:
@@ -37,6 +35,3 @@ stores:
     store_backend:
       class_name: TupleFilesystemStoreBackend
       base_directory: uncommitted/validations/
-
-expectations_store_name: expectations_store
-validations_store_name: validations_store

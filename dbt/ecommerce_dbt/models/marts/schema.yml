@@ -6,9 +6,25 @@ models:
       Fact table: each row is an order line item with pricing,
       customer, and product references. Built by joining staged
       orders with staged order items.
+      Grain: one row per (order_id, order_item_id).
+      PK:    fact_order_line_sk (MD5 surrogate key).
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - order_id
+            - order_item_id
     columns:
+      - name: fact_order_line_sk
+        description: "Surrogate primary key — MD5(order_id || order_item_id)"
+        tests:
+          - not_null
+          - unique
       - name: order_id
-        description: "Order identifier"
+        description: "Order identifier (FK to stg_orders)"
+        tests:
+          - not_null
+      - name: order_item_id
+        description: "Line-item sequence number within the order (1-based)"
         tests:
           - not_null
       - name: customer_id
@@ -25,6 +41,8 @@ models:
           - relationships:
               to: ref('dim_products')
               field: product_id
+      - name: seller_id
+        description: "Seller who fulfilled the line item"
       - name: price
         description: "Item price in BRL"
         tests:

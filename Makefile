@@ -1,7 +1,7 @@
 # ================================================================
 # E-Commerce Real-Time Data Pipeline — Makefile
 # ================================================================
-# Common commands for development, testing, and operations.
+# Cross-platform: works on Linux, macOS, and Windows (Git Bash/WSL).
 #
 # Usage:
 #   make help        Show all available commands
@@ -10,29 +10,35 @@
 #   make test        Run all tests (dbt + Great Expectations)
 # ================================================================
 
-.PHONY: help infra infra-down etl etl-bq stream validate \
-        dbt-run dbt-test dbt-docs dbt-deps \
-        lint lint-sql lint-python test clean
+.PHONY: help infra infra-down etl etl-s3 pipeline stream-producer stream-consumer \
+        validate dbt-run dbt-run-athena dbt-test dbt-docs dbt-deps \
+        lint lint-sql lint-python test unit-test clean
+
+# ── Cross-platform ───────────────────────────────────────────
+# Detect OS: set RM and RMDIR to cross-platform equivalents
+ifeq ($(OS),Windows_NT)
+    RM    = del /q /f
+    RMDIR = rmdir /s /q
+    SEP   = \\
+else
+    RM    = rm -f
+    RMDIR = rm -rf
+    SEP   = /
+endif
 
 # ── Default ──────────────────────────────────────────────────
 help: ## Show this help message
-	@echo.
-	@echo   E-Commerce Real-Time Data Pipeline
-	@echo   ===================================
-	@echo.
-	@echo   Available commands:
-	@echo.
-	@for /F "tokens=1,2* delims=#" %%a in ('findstr /R "^[a-z][a-z-]*:.*##" Makefile') do @echo     %%a %%b
-	@echo.
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' Makefile \
+		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 # ── Infrastructure ──────────────────────────────────────────
-infra: ## Start Docker infrastructure (PostgreSQL + Kafka)
+infra: ## Start Docker infrastructure (PostgreSQL + Kafka + Airflow)
 	docker compose up -d
-	@echo [OK] Infrastructure started
+	@echo "[OK] Infrastructure started"
 
 infra-down: ## Stop Docker infrastructure
 	docker compose down
-	@echo [OK] Infrastructure stopped
+	@echo "[OK] Infrastructure stopped"
 
 # ── Data Quality ────────────────────────────────────────────
 validate: ## Run Great Expectations validation on raw CSVs
@@ -42,8 +48,16 @@ validate: ## Run Great Expectations validation on raw CSVs
 etl: ## Run PySpark batch ETL (PostgreSQL only)
 	python batch/spark_etl.py
 
-etl-bq: ## Run PySpark batch ETL (PostgreSQL + BigQuery)
-	set ENABLE_BIGQUERY=true && python batch/spark_etl.py
+etl-s3: ## Run PySpark batch ETL (PostgreSQL + S3 Lakehouse)
+	ENABLE_AWS_LAKEHOUSE=true python batch/spark_etl.py
+
+etl-debug: ## Run ETL with row-count logging enabled
+	ETL_DEBUG=true python batch/spark_etl.py
+
+# ── Full Pipeline ───────────────────────────────────────────
+pipeline: validate etl dbt-run dbt-test ## Run full pipeline: Validate → ETL → dbt run → dbt test
+	@echo ""
+	@echo "[OK] Full pipeline complete!"
 
 # ── Streaming Pipeline ──────────────────────────────────────
 stream-producer: ## Start Kafka order event producer
@@ -59,15 +73,15 @@ dbt-deps: ## Install dbt packages (dbt-utils)
 dbt-run: ## Run all dbt models (PostgreSQL)
 	dbt run --project-dir dbt/ecommerce_dbt --profiles-dir dbt/ecommerce_dbt --target dev
 
-dbt-run-bq: ## Run all dbt models (BigQuery)
-	dbt run --project-dir dbt/ecommerce_dbt --profiles-dir dbt/ecommerce_dbt --target bigquery
+dbt-run-athena: ## Run all dbt models (Athena)
+	dbt run --project-dir dbt/ecommerce_dbt --profiles-dir dbt/ecommerce_dbt --target athena
 
 dbt-test: ## Run dbt tests
 	dbt test --project-dir dbt/ecommerce_dbt --profiles-dir dbt/ecommerce_dbt
 
-dbt-docs: ## Generate and serve dbt documentation (lineage graph)
+dbt-docs: ## Generate and serve dbt documentation (lineage graph + exposures)
 	dbt docs generate --project-dir dbt/ecommerce_dbt --profiles-dir dbt/ecommerce_dbt
-	@echo [OK] Docs generated — opening browser...
+	@echo "[OK] Docs generated — opening browser..."
 	dbt docs serve --project-dir dbt/ecommerce_dbt --profiles-dir dbt/ecommerce_dbt
 
 # ── Linting ─────────────────────────────────────────────────
@@ -77,18 +91,24 @@ lint-sql: ## Run SQLFluff on dbt models
 	sqlfluff lint dbt/ecommerce_dbt/models/ --dialect postgres --ignore templating
 
 lint-python: ## Run Flake8 on Python code
-	flake8 batch/ streaming/ great_expectations/ --max-line-length 120 --extend-ignore E501,W503 --exclude __pycache__,checkpoints
+	flake8 batch/ streaming/ great_expectations/ airflow/ config/ \
+		--max-line-length 120 \
+		--extend-ignore E501,W503 \
+		--exclude __pycache__,checkpoints
 
 # ── Testing ─────────────────────────────────────────────────
-test: validate dbt-test ## Run all tests (Great Expectations + dbt)
-	@echo.
-	@echo [OK] All tests passed!
+test: validate dbt-test unit-test ## Run all tests (GE + dbt + unit)
+	@echo ""
+	@echo "[OK] All tests passed!"
+
+unit-test: ## Run Python unit tests (pytest)
+	pytest tests/ -v --tb=short
 
 # ── Cleanup ─────────────────────────────────────────────────
 clean: ## Stop Docker and clean temporary files
 	docker compose down -v
-	if exist "dbt\ecommerce_dbt\target" rmdir /s /q "dbt\ecommerce_dbt\target"
-	if exist "dbt\ecommerce_dbt\logs" rmdir /s /q "dbt\ecommerce_dbt\logs"
-	if exist "streaming\checkpoints" rmdir /s /q "streaming\checkpoints"
-	if exist "logs" rmdir /s /q "logs"
-	@echo [OK] Cleaned up
+	$(RMDIR) dbt$(SEP)ecommerce_dbt$(SEP)target    2>/dev/null || true
+	$(RMDIR) dbt$(SEP)ecommerce_dbt$(SEP)logs      2>/dev/null || true
+	$(RMDIR) streaming$(SEP)checkpoints             2>/dev/null || true
+	$(RMDIR) logs                                   2>/dev/null || true
+	@echo "[OK] Cleaned up"
